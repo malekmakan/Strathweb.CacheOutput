@@ -8,6 +8,8 @@ using WebApi.OutputCache.Core.Cache;
 
 namespace WebApi.OutputCache.V2
 {
+    using System.Threading;
+
     public class CacheOutputConfiguration
     {
         private readonly HttpConfiguration _configuration;
@@ -23,9 +25,9 @@ namespace WebApi.OutputCache.V2
         }
 
         public void RegisterCacheKeyGeneratorProvider<T>(Func<T> provider)
-            where T: ICacheKeyGenerator
+            where T : ICacheKeyGenerator
         {
-            _configuration.Properties.GetOrAdd(typeof (T), x => provider);
+            _configuration.Properties.GetOrAdd(typeof(T), x => provider);
         }
 
         public void RegisterDefaultCacheKeyGeneratorProvider(Func<ICacheKeyGenerator> provider)
@@ -35,11 +37,14 @@ namespace WebApi.OutputCache.V2
 
         public string MakeBaseCachekey(string controller, string action)
         {
-            return string.Format("{0}-{1}", controller.ToLower(), action.ToLower());
+            var culture = Thread.CurrentThread.CurrentUICulture.ToString().Replace("-", ".").ToLowerInvariant();
+
+            return string.Format("{0}.{1}-{2}", culture.ToLower(), controller.ToLower(), action.ToLower());
         }
 
         public string MakeBaseCachekey<T, U>(Expression<Func<T, U>> expression)
         {
+            var culture = Thread.CurrentThread.CurrentUICulture.ToString().Replace("-", ".").ToLowerInvariant();
             var method = expression.Body as MethodCallExpression;
             if (method == null) throw new ArgumentException("Expression is wrong");
 
@@ -47,30 +52,30 @@ namespace WebApi.OutputCache.V2
             var nameAttribs = method.Method.GetCustomAttributes(typeof(ActionNameAttribute), false);
             if (nameAttribs.Any())
             {
-                var actionNameAttrib = (ActionNameAttribute) nameAttribs.FirstOrDefault();
+                var actionNameAttrib = (ActionNameAttribute)nameAttribs.FirstOrDefault();
                 if (actionNameAttrib != null)
                 {
                     methodName = actionNameAttrib.Name;
                 }
             }
 
-            return string.Format("{0}-{1}", typeof(T).FullName.ToLower(), methodName.ToLower());
+            return string.Format("{0}.{1}-{2}", culture.ToLower(), typeof(T).FullName.ToLower(), methodName.ToLower());
         }
 
         private static ICacheKeyGenerator TryActivateCacheKeyGenerator(Type generatorType)
         {
-            var hasEmptyOrDefaultConstructor = 
-                generatorType.GetConstructor(Type.EmptyTypes) != null || 
+            var hasEmptyOrDefaultConstructor =
+                generatorType.GetConstructor(Type.EmptyTypes) != null ||
                 generatorType.GetConstructors(BindingFlags.Instance | BindingFlags.Public)
-                .Any (x => x.GetParameters().All (p => p.IsOptional));
-            return hasEmptyOrDefaultConstructor 
-                ? Activator.CreateInstance(generatorType) as ICacheKeyGenerator 
+                .Any(x => x.GetParameters().All(p => p.IsOptional));
+            return hasEmptyOrDefaultConstructor
+                ? Activator.CreateInstance(generatorType) as ICacheKeyGenerator
                 : null;
         }
 
         public ICacheKeyGenerator GetCacheKeyGenerator(HttpRequestMessage request, Type generatorType)
         {
-            generatorType = generatorType ?? typeof (ICacheKeyGenerator);
+            generatorType = generatorType ?? typeof(ICacheKeyGenerator);
             object cache;
             _configuration.Properties.TryGetValue(generatorType, out cache);
 
@@ -80,8 +85,8 @@ namespace WebApi.OutputCache.V2
                 ? cacheFunc()
                 : request.GetDependencyScope().GetService(generatorType) as ICacheKeyGenerator;
 
-            return generator 
-                ?? TryActivateCacheKeyGenerator(generatorType) 
+            return generator
+                ?? TryActivateCacheKeyGenerator(generatorType)
                 ?? new DefaultCacheKeyGenerator();
         }
 
