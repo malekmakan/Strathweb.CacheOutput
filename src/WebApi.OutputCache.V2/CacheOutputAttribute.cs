@@ -17,11 +17,13 @@ using WebApi.OutputCache.Core.Time;
 
 namespace WebApi.OutputCache.V2
 {
+    using Newtonsoft.Json;
+
     [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
     public class CacheOutputAttribute : ActionFilterAttribute
     {
         private const string CurrentRequestMediaType = "CacheOutput:CurrentRequestMediaType";
-        protected static MediaTypeHeaderValue DefaultMediaType = new MediaTypeHeaderValue("application/json") {CharSet = Encoding.UTF8.HeaderName};
+        protected static MediaTypeHeaderValue DefaultMediaType = new MediaTypeHeaderValue("application/json") { CharSet = Encoding.UTF8.HeaderName };
 
         /// <summary>
         /// Cache enabled only for requests when Thread.CurrentPrincipal is not set
@@ -62,7 +64,7 @@ namespace WebApi.OutputCache.V2
         /// Class used to generate caching keys
         /// </summary>
         public Type CacheKeyGenerator { get; set; }
-        
+
         // cache repository
         private IApiOutputCache _webApiCache;
 
@@ -98,7 +100,7 @@ namespace WebApi.OutputCache.V2
 
         protected void ResetCacheTimeQuery()
         {
-            CacheTimeQuery = new ShortTime( ServerTimeSpan, ClientTimeSpan );
+            CacheTimeQuery = new ShortTime(ServerTimeSpan, ClientTimeSpan);
         }
 
         protected virtual MediaTypeHeaderValue GetExpectedMediaType(HttpConfiguration config, HttpActionContext actionContext)
@@ -162,7 +164,7 @@ namespace WebApi.OutputCache.V2
                 var etag = _webApiCache.Get<string>(cachekey + Constants.EtagKey);
                 if (etag != null)
                 {
-                    if (actionContext.Request.Headers.IfNoneMatch.Any(x => x.Tag ==  etag))
+                    if (actionContext.Request.Headers.IfNoneMatch.Any(x => x.Tag == etag))
                     {
                         var time = CacheTimeQuery.Execute(DateTime.Now);
                         var quickResponse = actionContext.Request.CreateResponse(HttpStatusCode.NotModified);
@@ -173,17 +175,22 @@ namespace WebApi.OutputCache.V2
                 }
             }
 
-            var val = _webApiCache.Get<byte[]>(cachekey);
+            //var val = _webApiCache.Get<byte[]>(cachekey);
+            var val = _webApiCache.Get<object>(cachekey);
             if (val == null) return;
 
             var contenttype = _webApiCache.Get<MediaTypeHeaderValue>(cachekey + Constants.ContentTypeKey) ?? new MediaTypeHeaderValue(cachekey.Split(new[] { ':' }, 2)[1].Split(';')[0]);
 
-            actionContext.Response = actionContext.Request.CreateResponse();
-            actionContext.Response.Content = new ByteArrayContent(val);
+            //actionContext.Response = actionContext.Request.CreateResponse();
+            //actionContext.Response.Content = new StringContent(val); //new ByteArrayContent(val);
+            actionContext.Response = actionContext.Request.CreateResponse(
+           HttpStatusCode.OK,
+           val,
+           actionContext.ControllerContext.Configuration.Formatters.JsonFormatter);
 
             actionContext.Response.Content.Headers.ContentType = contenttype;
             var responseEtag = _webApiCache.Get<string>(cachekey + Constants.EtagKey);
-            if (responseEtag != null) SetEtag(actionContext.Response,  responseEtag);
+            if (responseEtag != null) SetEtag(actionContext.Response, responseEtag);
 
             var cacheTime = CacheTimeQuery.Execute(DateTime.Now);
             ApplyCacheHeaders(actionContext.Response, cacheTime);
@@ -217,19 +224,22 @@ namespace WebApi.OutputCache.V2
                         var contentType = responseContent.Headers.ContentType;
                         string etag = actionExecutedContext.Response.Headers.ETag.Tag;
                         //ConfigureAwait false to avoid deadlocks
+
+                        var x = responseContent as ObjectContent;
+
                         var content = await responseContent.ReadAsByteArrayAsync().ConfigureAwait(false);
 
                         responseContent.Headers.Remove("Content-Length");
 
                         _webApiCache.Add(baseKey, string.Empty, cacheTime.AbsoluteExpiration);
-                        _webApiCache.Add(cachekey, content, cacheTime.AbsoluteExpiration, baseKey);
+                        _webApiCache.Add(cachekey, (x.Value), cacheTime.AbsoluteExpiration, baseKey);
 
-                       
+
                         _webApiCache.Add(cachekey + Constants.ContentTypeKey,
                                         contentType,
                                         cacheTime.AbsoluteExpiration, baseKey);
 
-                       
+
                         _webApiCache.Add(cachekey + Constants.EtagKey,
                                         etag,
                                         cacheTime.AbsoluteExpiration, baseKey);
@@ -245,11 +255,11 @@ namespace WebApi.OutputCache.V2
             if (cacheTime.ClientTimeSpan > TimeSpan.Zero || MustRevalidate || Private)
             {
                 var cachecontrol = new CacheControlHeaderValue
-                                       {
-                                           MaxAge = cacheTime.ClientTimeSpan,
-                                           MustRevalidate = MustRevalidate,
-                                           Private = Private
-                                       };
+                {
+                    MaxAge = cacheTime.ClientTimeSpan,
+                    MustRevalidate = MustRevalidate,
+                    Private = Private
+                };
 
                 response.Headers.CacheControl = cachecontrol;
             }
@@ -274,4 +284,4 @@ namespace WebApi.OutputCache.V2
             }
         }
     }
-} 
+}

@@ -19,8 +19,8 @@ namespace WebApi.OutputCache.Core.Cache
 
         public virtual T Get<T>(string key) where T : class
         {
-            var o = Cache.Get(key) as T;
-            return o;
+            var o = Cache.Get(key);
+            return o as T;
         }
 
         [Obsolete("Use Get<T> instead")]
